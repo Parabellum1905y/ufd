@@ -5,10 +5,53 @@
 		thetoolman@gmail.com 
 		Kadalashvili.Vladimir@gmail.com
 
+	Fork author:
+	Luger Parabellum
 	Version:  @VERSION
 
 	Website: http://code.google.com/p/ufd/
  */
+
+function getMaxHeight (listItems){
+	var max = 0;
+	listItems.each (function (i, elem){
+		if ($(elem).outerHeight (true)>max) max = $(elem).outerHeight (true);
+	});
+	return max;
+}
+
+function getHiddenWidth (listItems){
+	var max = 0;
+	//, top:-100, left: -100,  style:"white-space: nowrap;"
+	var outdiv = $('<div>', {html:"", style:"display:inline-block;white-space: nowrap;top:-100; left: -100"});
+	$('body').prepend (outdiv);
+	listItems.each (function (i, elem){
+		outdiv.html ("");
+		outdiv.html ($(elem).html ());
+		if (outdiv.outerWidth (true)>max) max = outdiv.outerWidth (true);
+	});
+	outdiv.detach ();
+	return max;
+}
+
+function getMaxWidth (listItems){
+	var max = 0;
+	listItems.each (function (i, elem){
+		if ($(elem).outerWidth (true)>max) max = $(elem).outerWidth (true);
+	});
+	return max;
+}
+
+function isInteger(value) {
+	return (/^\-?\d+$/.test(value));
+}
+
+function getInteger(value) {
+	if (isInteger(value)) {
+		return parseInt(value, 10);
+	}
+	return null;
+}
 
 (function($) {
 
@@ -41,20 +84,19 @@ $.widget(widgetName, {
 		this.selectbox = this.element;
 		this.logNode = $(this.options.logSelector);
 		this.overflowCSS = this.options.allowLR ? "overflow" : "overflowY";
-		var inputName = this.options.prefix + this.selectbox.attr("name");
+		var selectName = this.selectbox.attr("name");
+		var prefixName = this.options.prefix + selectName;
+		var inputName = this.options.submitFreeText ? selectName : prefixName;
 		var inputId = ""; // none unless master select has one
-		this.internalFocus = (this.selectbox[0] === document.activeElement); 
-		
-		// workaround for firefox autocomplete weirdness, see http://code.google.com/p/ufd/issues/detail?id=25
-		this.origACAttr = this.selectbox.attr("autocomplete"); // store original setting for destroy
-		this.selectbox.attr("autocomplete", "off");
 
 		var sbId = this.selectbox.attr("id");
+
 		if(sbId) {
 			inputId = this.options.prefix + sbId ;
 			this.labels = $("label[for='" + sbId + "']").attr("for", inputId);
 		}
 
+		if(this.options.submitFreeText) this.selectbox.attr("name", prefixName);
 		if(this.options.calculateZIndex) this.options.zIndexPopup = this._calculateZIndex();
 
 		var css = this.options.css;
@@ -78,30 +120,53 @@ $.widget(widgetName, {
 				'</div>',
 			'</div>'
 		].join(''));
-
 		this.selectbox.after(this.wrapper);
-		this.getDropdownContainer().append(this.dropdown);
+		printvisible = !this.options.printvisible;
+		inputprintvisible = !this.options.inputprintvisible;
+		var dropConteiner = this.getDropdownContainer();
+		dropConteiner.append(this.dropdown);
+		if (printvisible) dropConteiner.addClass ("print-unvisible");
+		this.input = this.wrapper.find("input");
+//		this.wrapper.before (dropConteiner);
+//		this.wrapper.after (this.dropdown);
+		if (inputprintvisible) {
+			this.input.addClass ("print-unvisible");
+			this.wrapper.addClass ("printborder");
+			this.wrapper.removeClass ("print-unvisible");
+		}else if (printvisible){
+			this.input.removeClass ("print-unvisible");
+			this.wrapper.addClass ("print-unvisible");
+		}
+		else this.input.addClass ("printborder");
+		this.button = this.wrapper.find("button");
+		if (printvisible) this.button.addClass ("print-unvisible");
+		this.listWrapper = this.dropdown.children(":first").css("z-index", this.options.zIndexPopup);
+		if (printvisible) this.listWrapper.addClass ("print-unvisible");
+		this.listScroll = this.listWrapper.children(":first");
+		if (printvisible) this.listScroll.addClass ("print-unvisible");
+	
+//		this.getDropdownContainer().append(this.dropdown);
 
 		this.input = this.wrapper.find("input");
 		this.button = this.wrapper.find("button");
 		this.listWrapper = this.dropdown.children(":first").css("z-index", this.options.zIndexPopup);
 		this.listScroll = this.listWrapper.children(":first");
-		
+		if (this.options.inputAlign){
+			this.input.css ("text-align",this.options.inputAlign);
+		}
+
 		if($.fn.bgiframe) this.listWrapper.bgiframe(); //ie6 !
 		
 		// check browser supports min-width, revert to fixed if no support - Looking at you, iE6...
 		if(!this.options.listWidthFixed){ 
 			this.listWrapper.css({"width": 50, "min-width": 100});
 			this.options.listWidthFixed = (this.listWrapper.width() < 100);
-			this.listWrapper.css({"width": '', "min-width": ''});
+			this.listWrapper.css({"width": null, "min-width": null});
 		}
 
 		this._populateFromMaster();
 		this._initEvents();
-		if(this.internalFocus){
-			this._focusDisplay();
-			this.input.focus();
-		}
+
 		// this._timingMeasure(false, "init");
 	},
 
@@ -120,7 +185,8 @@ $.widget(widgetName, {
 			isKeyPress = (event.type == "keypress");
 			isKeyUp = (event.type == "keyup");
 			key = null;
-
+			self.arrowpressed = false;
+			self.enterpressed = false;
 			if (undefined === event.which) {
 				key = event.keyCode; 
 			} else if (!isKeyPress && event.which != 0) {
@@ -129,7 +195,7 @@ $.widget(widgetName, {
 				return; //special key
 			}
 			
-			switch (key) { //stop default behaviour for these events
+			switch (key) { //stop default behivour for these events
 				case keyCodes.HOME:
 				case keyCodes.END:
 					if(self.options.homeEndForCursor) return; //no action except default
@@ -157,6 +223,7 @@ $.widget(widgetName, {
 				break;
 
 			case keyCodes.DOWN:
+				if (self.options.arrowspresshandle) self.arrowpressed = true;
 				self.selectNext(false);
 				break;
 			case keyCodes.PAGE_DOWN:
@@ -167,6 +234,7 @@ $.widget(widgetName, {
 				break;
 
 			case keyCodes.UP:
+				if (self.options.arrowspresshandle) self.arrowpressed = true;
 				self.selectPrev(false);
 				break;
 			case keyCodes.PAGE_UP:
@@ -177,6 +245,7 @@ $.widget(widgetName, {
 				break;
 
 			case keyCodes.ENTER:
+				self.enterpressed = true;
 				self.hideList();
 				self.tryToSetMaster();
 				self.inputFocus();
@@ -187,6 +256,7 @@ $.widget(widgetName, {
 			case keyCodes.ESCAPE:
 				self.hideList();
 				self.revertSelected();
+//				self.specialLooseFocusEvent();
 				break;
 
 			default:
@@ -196,6 +266,16 @@ $.widget(widgetName, {
 			}
 		});
 
+		this.input.bind("dblclick", function(e) {
+			if (self.isReadOnly){
+				if (self.options.clickHandler != null){
+					self.stopEvent(e);
+					self.options.clickHandler ();
+					return;
+				}
+			}
+		}); 
+		
 		this.input.bind("click", function(e) {
 			if(self.isDisabled){
 				self.stopEvent(e);
@@ -208,14 +288,37 @@ $.widget(widgetName, {
 				self.showList();
 			}
 		}); 
+
 		this.input.bind("focus", function(e) {
 			if(self.isDisabled){
 				self.stopEvent(e);
 				return;
 			}
-			// self.log("input focus");
+			if ($(self.input).is (":hidden")){
+				self.stopEvent(e);
+				return;
+			}
 			if(!self.internalFocus){
 				self.realFocusEvent();
+			}
+		});
+
+		this.input.bind("blur", function(e) {
+			if(self.isDisabled){
+				self.stopEvent(e);
+				return;
+			}
+			// self.log("input blur");
+			if(!self.internalFocus){
+				self.realLooseFocusEvent();
+//			}else{
+//				self.internalFocus = false;
+////				this.tryToSetMaster();
+//				self.hideList();  
+//				self.wrapper.removeClass(self.options.css.skin + "-" + self.options.css.inputFocus);
+//				self.input.removeClass(self.options.css.inputFocus);
+//				self.button.removeClass(self.options.css.inputFocus);
+////				this._triggerEventOnMaster("blur");
 			}
 		});
 
@@ -244,10 +347,10 @@ $.widget(widgetName, {
 		 * Swallow mouse scroll to prevent body scroll
 		 * thanks http://www.switchonthecode.com/tutorials/javascript-tutorial-the-scroll-wheel
 		*/
+		
 		this.listScroll.bind("DOMMouseScroll mousewheel", function(e) {
 			self.stopEvent(e);
-			
-			e = e ? e.originalEvent : window.event; // as of jq 1.7, detail/wheelDelta are only on originalEvent, see issue 60
+			e = e ? e : window.event;
 			var normal = e.detail ? e.detail * -1 : e.wheelDelta / 40;
 			
 			var curST = self.listScroll.scrollTop();
@@ -256,33 +359,58 @@ $.widget(widgetName, {
 		});
 		
 		this.listScroll.bind("mouseover mouseout click", function(e) {
-			var target = e.target;
-			if( "EM" == target.nodeName.toUpperCase() ) { 
-				//we found an emphasised item; use parent LI
-				target = target.parentNode;
-			}
-			if ( "LI" == target.nodeName.toUpperCase() ) {
+			if ( "LI" == e.target.nodeName.toUpperCase()) {
 				if(self.setActiveTimeout) { //cancel pending selectLI -> active
 					clearTimeout(self.setActiveTimeout);
 					self.setActiveTimeout == null;
 				}
 				if ("mouseout" == e.type) {
-					$(target).removeClass(css.liActive);
+					$(e.target).removeClass(css.liActive);
 					self.setActiveTimeout = setTimeout(function() { 
 						$(self.selectedLi).addClass(css.liActive); 
 					}, self.options.delayYield);
 
 				} else if ("mouseover" == e.type) { 
-					if (self.selectedLi != target) { 
+					if (self.selectedLi != e.target) { 
 						$(self.selectedLi).removeClass(css.liActive);
 					}
-					$(target).addClass(css.liActive);
+					$(e.target).addClass(css.liActive);
 
 				} else { //click
 					self.stopEvent(e); //prevent bubbling to document onclick binding etc
-					var value = $.trim($(target).text());
+					var value = $.trim($(e.target).text());
 					self.input.val(value);
-					self.setActive(target);
+//					console.log (e.target);
+					self.setActive(e.target);
+					if(self.tryToSetMaster() ) {
+						self.hideList();
+						self.filter(true); //show all
+					}
+					self.inputFocus();
+				}
+			}else if ("DIV" == e.target.nodeName.toUpperCase()){
+				var elem = $(e.target).parent ();
+				if(self.setActiveTimeout) { //cancel pending selectLI -> active
+					clearTimeout(self.setActiveTimeout);
+					self.setActiveTimeout == null;
+				}
+				if ("mouseout" == e.type) {
+					$(elem).removeClass(css.liActive);
+					self.setActiveTimeout = setTimeout(function() { 
+						$(self.selectedLi).addClass(css.liActive); 
+					}, self.options.delayYield);
+
+				} else if ("mouseover" == e.type) { 
+					if (self.selectedLi != e.target) { 
+						$(self.selectedLi).removeClass(css.liActive);
+					}
+					$(elem).addClass(css.liActive);
+
+				} else { //click
+					self.stopEvent(e); //prevent bubbling to document onclick binding etc
+					var value = $.trim($(elem).text());
+					self.input.val(value);
+					self.setActive(elem);
 					if(self.tryToSetMaster() ) {
 						self.hideList();
 						self.filter(true); //show all
@@ -333,18 +461,12 @@ $.widget(widgetName, {
 		// this.log("real input focus");
 		this.internalFocus = true;
 		this._triggerEventOnMaster("focus");
-		this._focusDisplay();
-		this.filter(true); //show all
-		this.inputFocus();
-		if (this.options.showListOnFocus) {
-			this.showList();
-		}
-	},
-	
-	_focusDisplay: function(){
 		this.wrapper.addClass(this.options.css.skin + "-" + this.options.css.inputFocus); // for ie6 support
 		this.input.addClass(this.options.css.inputFocus);
 		this.button.addClass(this.options.css.inputFocus);
+		this.filter(true); //show all
+		this.inputFocus();
+		this.showList();
 	},
 
 	realLooseFocusEvent: function() {
@@ -358,9 +480,32 @@ $.widget(widgetName, {
 		this._triggerEventOnMaster("blur");
 	},
 
+	specialLooseFocusEvent: function() {
+		// this.log("real loose focus (blur)");
+		this.internalFocus = false;
+		this.hideList();  
+		this.wrapper.removeClass(this.options.css.skin + "-" + this.options.css.inputFocus);
+		this.input.removeClass(this.options.css.inputFocus);
+
+		var active = this.getActive();
+		var optionIndex = null;
+		if (active.length) {
+			optionIndex = active.attr("name"); //sBox pointer index
+		}
+		var sBox = this.selectbox.get(0);			
+		var option = sBox.options[optionIndex];
+		if (option){
+			var selectedtext = option.text;
+			if(this.options.showmealt){
+				selectedtext = option.getAttribute("alt");
+			}
+			this.input.val(selectedtext); // input may be only partially set
+		}
+		this.button.removeClass(this.options.css.inputFocus);
+		this._triggerEventOnMaster("blur");
+	},
+
 	_triggerEventOnMaster: function(eventName) {
-		//this.selectbox.trigger(eventName); // we dont use jquery .trigger() as it doesnt fire handlers attached using raw JS :(
-		
 		if( document.createEvent ) { // good browsers
 			var evObj = document.createEvent('HTMLEvents');
 			evObj.initEvent( eventName, true, true );
@@ -368,12 +513,6 @@ $.widget(widgetName, {
 
 		} else if( document.createEventObject ) { // iE
 			this.selectbox.get(0).fireEvent("on" + eventName);
-			
-			// jQuery.event.special.<event> normalises naughty browsers from 1.4+, so jquery won't hear native events if its .setup() returns true; 
-			// currently only "change" returns true, so need to trigger by hand
-			if( (jQuery.support.changeBubbles === false)  && eventName == 'change' ){
-			    this.selectbox.change();
-			}
 		} 
 
 	},
@@ -381,15 +520,10 @@ $.widget(widgetName, {
 	// methods
 
 	inputFocus: function() {
-		//this.log("inputFocus: restore input component focus");
-		var input = this.input;
-		input.focus();
-
+		// this.log("inputFocus: restore input component focus");
+		this.input.focus();
 		if (this.getCurrentTextValue().length) {
-			//this.log("Select All");
-			setTimeout(function() { // workaround for webkit issue, UFD issue #59
-				input.get(0).select();
-			}, 1);
+			this.selectAll();    	
 		}			
 	},
 
@@ -401,6 +535,9 @@ $.widget(widgetName, {
 	showList: function() {
 		// this.log("showlist");
 		if(this.listVisible()) return;
+//		if (this.options.scroll != 'default' && this.options.scroll && this.options.scrollconteiner){
+//			this.scrollToPosition (this.options.scrollconteiner, 300, "middle", 0);
+//		}
 		this.listWrapper.removeClass(this.css.hidden);
 		this.setListDisplay();
 	},
@@ -408,10 +545,37 @@ $.widget(widgetName, {
 	hideList: function() {
 		// this.log("hide list");
 		if(!this.listVisible()) return;
+//		this.getDropdownContainer().append(this.dropdown.detach ());
 		this.listWrapper.addClass(this.css.hidden);
 		this.listItems.removeClass(this.css.hidden);   
 	},
 
+	hide: function() {
+		// this.log("hide list");
+		//console.log ("this.comboVisible()="+this.comboVisible());
+		if(!this.comboVisible()) return;
+//		console.log (this.comboVisible());
+		this.hideList();
+		this.wrapper.addClass(this.css.hidden);
+		this.input.addClass (this.css.hidden);
+		this.button.addClass (this.css.hidden);
+		this.list.addClass (this.css.hidden);
+		this.wrapper.css ("display", "none");
+	},
+
+	show: function() {
+		//this.log("show list");
+		if(this.comboVisible()) return;
+		//this.dimensioned = false;
+		//this.setDimensions();
+		this.wrapper.removeClass(this.css.hidden);
+		this.listWrapper.addClass(this.css.hidden);
+		this.listItems.removeClass(this.css.hidden);   
+		this.input.removeClass (this.css.hidden);
+		this.button.removeClass (this.css.hidden);
+		this.list.removeClass (this.css.hidden);
+		this.wrapper.css ("display", "block");
+	},
 	/*
 	 * adds / removes items to / from the dropdown list depending on combo's current value
 	 * 
@@ -577,25 +741,53 @@ $.widget(widgetName, {
 			optionIndex = active.attr("name"); //sBox pointer index
 		}
 		if (optionIndex == null || optionIndex == "" || optionIndex < 0) {
-			this.revertSelected();
-			return false;
+			// this.log("no active, master not set.");
+			if (this.options.submitFreeText) {
+				return false;
+				
+			} else { 
+				// this.log("Not freetext and no active set; revert.");
+				this.revertSelected();
+				return false;
+			}
 		} // else optionIndex is set to activeIndex
 
 		var sBox = this.selectbox.get(0);			
 		var curIndex = sBox.selectedIndex;
 		var option = sBox.options[optionIndex];
 
-		this.input.val(option.text); // input may be only partially set
+		if(!this.options.submitFreeText || this.input.val() == option.text){ //freetext only if exact match
+			var selectedtext = option.text;
+			if(this.options.showmealt){
+				selectedtext = option.getAttribute("alt");
+			}
+			this.input.val(selectedtext); // input may be only partially set
+			if(optionIndex != curIndex){
+				this.isUpdatingMaster = true;
+				sBox.selectedIndex = optionIndex;
+				// this.log("master selectbox set to: " + option.text);
+				if (!this.arrowpressed) {
+					this._triggerEventOnMaster("change");
+				}else {
+					self.arrowpressed = false;
+				}
+			} else if (this.enterpressed){
+				this.enterpressed = false;
+				this.isUpdatingMaster = true;
+				sBox.selectedIndex = optionIndex;
+				// this.log("master selectbox set to: " + option.text);
+				if (!this.arrowpressed) {
+					this._triggerEventOnMaster("change");
+				}else {
+					self.arrowpressed = false;
+				}
+			}// else already correctly set, no change
+			return true;
+			
+		} // else have a non-matched freetext
+		// this.log("unmatched freetext, master not set.");
 		
-		if(optionIndex != curIndex){
-			this.isUpdatingMaster = true;
-			sBox.selectedIndex = optionIndex;
-			// this.log("master selectbox set to: " + option.text);
-			this._triggerEventOnMaster("change");
-
-		} // else already correctly set, no change
-		return true;
-		
+		return false;
 	},
 	
 	_populateFromMaster: function() {
@@ -603,7 +795,7 @@ $.widget(widgetName, {
 		// this._timingMeasure(true, "prep");
 		var isEnabled = !this.selectbox.filter("[disabled]").length; //remember incoming state
 		this.disable();
-
+		
 		this.trie = new InfixTrie(this.options.infix, this.options.caseSensitive);
 		this.trie.matches = [];
 		this.trie.misses = [];
@@ -621,12 +813,42 @@ $.widget(widgetName, {
 		loopCountdown = options.length;
 		// this.log("loopCountDown: " + loopCountdown);
 		index = 0;
+		index2 = 0;
+		var selected = null;
+		var selectedText = "";
 		while(loopCountdown--) {
 			thisOpt = options[index++];
+			if ($(thisOpt).is (":selected")){
+				selected = thisOpt;
+				selectedText = $(selected).text ();
+				if(this.options.showmealt){
+					selectedText = thisOpt.getAttribute("alt");
+				}
+				this.input.val(selectedText); // input may be only partially set
+			}else {
+				selected = null;
+			}
 			listBuilder.push('<li name="');
 			listBuilder.push(thisOpt.index);
-			listBuilder.push('">');
-			listBuilder.push($.trim(thisOpt.innerHTML));
+			listBuilder.push('"');
+			if (selected) listBuilder.push('startselected="startselected"');
+			if (this.options.setnobr) listBuilder.push('style="white-space:nowrap;height:20px"');
+			if (this.options.showtitle) listBuilder.push('title="'+$.trim(thisOpt.innerHTML)+'"');
+			listBuilder.push('>');
+			var codeWidth = 30;
+			if (this.options.altWidth) codeWidth = this.options.altWidth;
+			var alt = "";
+			if (!this.options.noalt){
+				var aAlign = 'center'; 
+				if (this.options.altAlign){
+					aAlign = this.options.altAlign;
+				}
+				alt = "<div style='display: inline-block;width:"+
+						codeWidth+"px; text-align:"+aAlign+"; padding:0 3px 0 3px'>"+
+						thisOpt.getAttribute("alt")+"</div> ";
+				//;margin-left:2px
+			}
+			listBuilder.push(alt+$.trim(thisOpt.innerHTML)+"");
 			listBuilder.push('</li>');
 		}
 
@@ -640,34 +862,34 @@ $.widget(widgetName, {
 		// this._timingMeasure(true, "kids");
 		var theLiSet = this.list.get(0).getElementsByTagName('LI'); // much faster array then .childElements !
 		this.listItems = $(theLiSet);
-		this.selectedLi = null;
-
 		loopCountdown = theLiSet.length;
 		index = 0;
 		while(loopCountdown--) {
 			thisOpt = options[index];
-			self.trie.add( $.trim(thisOpt.text), theLiSet[index++]); //option.text not innerHTML for trie as we dont want escaping
+			self.trie.add( $.trim(thisOpt.text)+thisOpt.getAttribute("alt"), theLiSet[index++]);
 		} 
 
 		// this._timingMeasure(false, "kids");
 		// this._timingMeasure(true, "tidy");
 		
 		this.visibleCount = theLiSet.length;
-		this.setInputFromMaster();
-		
+		this.setInputFromMasterInner();
+		selected = this.list.find ("li[startselected='startselected']");
+//		console.log (this.list);
+		if (selected) {
+			this.setActive(selected);
+		}else{
+			this.selectedLi = null;
+		}
+//		console.log (this.getActive());
 		this.dimensioned = false;
+//		console.log ("this.dimensioned"+this.dimensioned);
 		this.setDimensions();
 		
 		if(isEnabled) this.enable();
 		// this._timingMeasure(false, "tidy");
 
         this._moveAttrs(this.selectbox, this.input, this.options.moveAttrs);
-        
-		if(this.internalFocus) setTimeout(function(){ 
-			// ie8 bug seems to need breather for focus to happen after manipulation: http://stackoverflow.com/questions/1326993/jquery-focus-sometimes-not-working-in-ie8
-			self.input.focus();			
-		}, 1);
-
 	},
 
 	/*
@@ -698,7 +920,7 @@ $.widget(widgetName, {
 		if(this.selectIsWrapped && !this.wrapper.filter(":visible").length){
 			return;
 		}
-
+		
 		this.wrapper.addClass(this.css.hidden);
 		if(this.selectIsWrapped && (!this.options.manualWidth || this.options.unwrapForCSS)) { // unwrap
 			this.wrapper.before(this.selectbox);
@@ -707,6 +929,11 @@ $.widget(widgetName, {
 
 		//match original width
 		var newSelectWidth;
+		var divWidth = 0;
+		var scrollwidth = 0;
+//		console.log ("this.options.maxDivWidth"+this.options.maxDivWidth);
+		if (this.options.maxDivWidth != null) divWidth = this.options.maxDivWidth;
+		if (this.options.setautowidthlist) divWidth = this.itemWidth;
 		if(this.options.manualWidth) {
 			newSelectWidth = this.options.manualWidth; 
 		} else {
@@ -733,6 +960,7 @@ $.widget(widgetName, {
 		this.wrapper.removeClass(this.css.hidden);
 		this.listWrapper.removeClass(this.css.hidden);
 		
+		
 		var buttonWidth = this.button.outerWidth(true);
 		var wrapperBP = this.wrapper.outerWidth() - this.wrapper.width();
 		var inputBP = this.input.outerWidth(true) - this.input.width();
@@ -741,26 +969,86 @@ $.widget(widgetName, {
 
 		this.input.width(inputWidth);
 		this.wrapper.width(newSelectWidth);
-		
-		var cssWidth = this.options.listWidthFixed ? "width" : "min-width";
-		this.listWrapper.css(cssWidth, newSelectWidth + wrapperBP);
-		this.listScroll.css(cssWidth, newSelectWidth + wrapperBP - listScrollBP);
+		if (divWidth == 0)this.listWrapper.width(newSelectWidth + wrapperBP);
+		else this.listWrapper.width (divWidth + wrapperBP);
+		if (divWidth == 0)
+			this.listScroll.width(this.itemWidth + wrapperBP - listScrollBP);
+		else (this.listScroll.width(this.itemWidth + wrapperBP - listScrollBP));
 
+//		this.input.width(inputWidth);
+//		this.wrapper.width(newSelectWidth);
+//		var cssWidth = this.options.listWidthFixed ? "width" : "min-width";
+//		this.listWrapper.css(cssWidth, newSelectWidth + wrapperBP);
+//		this.listScroll.css(cssWidth, newSelectWidth + wrapperBP - listScrollBP);
+
+/*		if (divWidth == 0)this.listWrapper.css(cssWidth, newSelectWidth + wrapperBP);
+		else this.listWrapper.css(cssWidth, divWidth + wrapperBP);
+		if (divWidth == 0)
+			this.listScroll.css(cssWidth, this.itemWidth + wrapperBP - listScrollBP);
+		else this.listScroll.css(divWidth, this.itemWidth + wrapperBP - listScrollBP);
 /*		console.log(newSelectWidth + " : " + inputWidth + " : " + 
 				buttonWidth + " : " + listScrollBP + " : " + wrapperBP); */ 
 		this.listWrapper.addClass(this.css.hidden);
 		
+		if(!this.itemHeight) { // caclulate only once
+			this.itemHeight = getMaxHeight (this.listItems);
+		}
+
+		if (this.options.allowLR && this.options.setnobr){
+			var w = getHiddenWidth (this.listItems);
+			if (w > this.listWrapper.outerWidth()+10) {
+				this.listScroll.outerWidth(this.listWrapper.outerWidth()-10);
+				$(this.listScroll.find("ul")).css ("width", w+"px");
+			}
+		}
+
 		this.dimensioned = true;
 
 	},
 
 	setInputFromMaster: function() {
-		var selectNode = this.selectbox.get(0);
-		var selectIndex = selectNode.selectedIndex;
-		if (selectIndex > -1) {
-			this.input.val(selectNode.options[selectIndex].text);
-			this.selectedLi = this.listItems.get(selectIndex);
+		var val = "";
+		try {
+			node =$(this.selectbox).find ("option:selected"); 
+			val = node.text ();
+			
+			selected = this.list.find ("li[startselected='startselected']");
+			selected.removeAttr ("startselected");
+			selected.removeProp ("startselected");
+			
+			this.list.find ("li[name='"+node.index()+"']").attr ("startselected", "startselected");
+			selected = this.list.find ("li[startselected='startselected']");
+			
+			if (selected) {
+				this.setActive(selected);
+			}else{
+				this.selectedLi = null;
+			}
+			if(this.options.showmealt){
+				val = $(this.selectbox).find ("option:selected").attr ("alt");
+			}
+		} catch(e) {
+			//must have no items!BP
 		}
+		//this.log("setting input to: " + val);
+		this.input.val(val);
+	},
+
+	setInputFromMasterInner: function() {
+//		var selectNode = this.selectbox.get(0);
+		var val = "";
+		try {
+//			val = selectNode.options[selectNode.selectedIndex].text;
+			val = $(this.selectbox).find ("option:selected").text ();
+			if(this.options.showmealt){
+//				val = selectNode.options[selectNode.selectedIndex].getAttribute("alt");
+				val = $(this.selectbox).find ("option:selected").attr ("alt");
+			}
+		} catch(e) {
+			//must have no items!BP
+		}
+		//this.log("setting input to: " + val);
+		this.input.val(val);
 	},
 
 	revertSelected: function() {
@@ -770,12 +1058,19 @@ $.widget(widgetName, {
 	
 	//corrects list wrapper's height depending on list items height
 	setListDisplay: function() {
-
-		// this._timingMeasure(true, "listDisplay");
-		if(!this.itemHeight) { // caclulate only once
-			this.itemHeight = this.listItems.filter("li:first").outerHeight(true);
-			// this.log("listItemHeight: " + this.itemHeight);
+		// console.time("listDisplay");
+//		this.wrapper.after (this.dropdown.detach ());
+		if(!this.itemHeight || this.itemHeight == 0) { // caclulate only once
+			this.itemHeight = getMaxHeight (this.listItems);
 		}
+		
+		if(!this.itemWidth) { // caclulate only once
+			this.itemWidth = getMaxWidth (this.listItems);
+		}
+//		if(!this.itemHeight) { // caclulate only once
+//			this.itemHeight = this.listItems.filter("li:first").outerHeight(true);
+//			// this.log("listItemHeight: " + this.itemHeight);
+//		}
 		var height;
 		
 		if (this.visibleCount > this.options.listMaxVisible) {
@@ -783,13 +1078,14 @@ $.widget(widgetName, {
 			this.listScroll.css(this.overflowCSS, "scroll");
 		} else {
 			height = this.visibleCount * this.itemHeight; 
-			this.listScroll.css(this.overflowCSS, "hidden");
+			this.listScroll.css(this.overflowCSS, "scroll");
 		}
-		
+		if (height <=20) height+=23;
+		if (this.options.allowLR) height += 15;
 		// this.log("height set to: " + height);
 		this.listScroll.height(height); 
 		var outerHeight = this.listScroll.outerHeight();
-		this.listWrapper.height(outerHeight); 
+		this.listWrapper.height(outerHeight);  
 
 		//height set, now position
 		
@@ -798,25 +1094,47 @@ $.widget(widgetName, {
 		var bottomPos = offset.top + wrapperOuterHeight + outerHeight;
 		
 		var maxShown = $(window).height() + $(document).scrollTop();
-		var doDropUp = (bottomPos > maxShown);
+		var doDropUp = (bottomPos > maxShown && (offset.top>($(window).height() + $(document).scrollTop()-offset.top)));
+//		var doDropUp = false;//(bottomPos > maxShown);
 
 		
 		var left = offset.left;
 		var top;
 		
 		if (doDropUp) {
+//			var newHeight = $(window).height() + $(document).scrollTop()-offset.top;
+			if (this.listScroll.height()-20>offset.top){
+				this.listScroll.height(offset.top);
+				outerHeight = this.listScroll.outerHeight();
+				this.listWrapper.height(outerHeight); 
+			}
 			this.listWrapper.addClass(this.css.listWrapperUp);
 			top = (offset.top - outerHeight) ;
 		} else {
+			if (this.listScroll.height()-20>($(window).height() + $(document).scrollTop()-offset.top)){
+				this.listScroll.height(($(window).height() + $(document).scrollTop()-offset.top));
+				outerHeight = this.listScroll.outerHeight();
+				this.listWrapper.height(outerHeight); 
+			}
 			this.listWrapper.removeClass(this.css.listWrapperUp);
 			top = (offset.top + wrapperOuterHeight);
 		}
+		//this.listScroll.width()
+		if(this.options.autoalign){
+			if (left+this.listScroll.width()>$(window).width()){
+				left = (offset.left + this.wrapper.width()) -  this.listScroll.width();
+			}
+		}
 		this.listWrapper.css("left", left);
-		this.listWrapper.css("top", top );			
+		this.listWrapper.css("top", top );
+//		this.listWrapper.parents ("div:first").css("left", left);
+//		this.listWrapper.parents ("div:first").css("top", top );			
 		this.scrollTo();
-
 		// this._timingMeasure(false, "listDisplay");
-		
+//		if (this.options.scroll != 'default' && this.options.scroll && this.options.scrollconteiner){
+//			scrollToPosition (this.options.scrollconteiner,this.listWrapper, 1, "middle", 0);
+//		}
+
 		return height;
 	},
 
@@ -868,6 +1186,8 @@ $.widget(widgetName, {
 		if(active == null) return; 
 		this.setActive(active);
 		this.input.val(active.text());
+		var selectedtext = active.text();
+		this.input.val(selectedtext); // input may be only partially set
 		this.scrollTo();
 		this.tryToSetMaster();
 		this.inputFocus();
@@ -897,6 +1217,46 @@ $.widget(widgetName, {
 		return active;
 	},
 	
+	// select current element
+	selectCurrent: function() {
+		// this.log("searchRelative: " + isSearchDown + " : " + count);
+		
+		var active = this.getActive();
+		if (!active.length) {
+			this.selectFirst();
+			return null;
+		}
+		return active;
+	},
+	scrollToPosition: function (conteiner, latency, top, left){
+		var x = 0;
+		var y = 0;
+		if (top == 'middle'){
+			y = -$(conteiner).height ()/2;
+		}else if (top == "top"){
+			y = 0;
+		}else if (top == "bottom"){
+			y = -$(conteiner).height ();
+		}else if (top == null || top == undefined){
+			y = -$(conteiner).height ()/2;
+		}else{
+			y=top;
+		}
+		if (left == 'center'){
+			x = -$(conteiner).width ()/2;
+		}else if (left == "left"){
+			x = -$(conteiner).width ();
+		}else if (left == "right"){
+			x = 0;
+		}else if (left == null || left == undefined){
+			x = 0;
+		}else{
+			x = left;
+		}
+		$(conteiner).scrollTo($(this.input), latency, {offset:{top:y, left:x}});
+//		$(conteiner).scrollTo($(object), latency, {offset:{top:y, left:x}});
+	},
+
 	//scrolls list wrapper to active: true if scroll occured
 	scrollTo: function() {
 		// this.log("scrollTo");
@@ -950,7 +1310,7 @@ $.widget(widgetName, {
 			indexB = tritem.length;
 			count += indexB;
 			while(indexB--) { // duplicate match array
-				tritem[indexB].className = classString; // here is the overwrite
+				tritem[indexB].setAttribute($.ui.ufd.classAttr, classString);
 			}
 		}
 		// this._timingMeasure(false, "overwriteClass");
@@ -960,6 +1320,15 @@ $.widget(widgetName, {
 	listVisible: function() {
 		var isVisible = !this.listWrapper.hasClass(this.css.hidden);
 		// this.log("is list visible?: " + isVisible);
+		return isVisible;
+	},
+
+	comboVisible: function() {
+		var inputVis = !this.input.hasClass(this.css.hidden);
+		var wrapperVis = !this.wrapper.hasClass(this.css.hidden);
+		var buttonVis = !this.button.hasClass(this.css.hidden);
+//		console.log (inputVis+ " " +wrapperVis+ " " +buttonVis);
+		var isVisible = (inputVis&&wrapperVis&&buttonVis);
 		return isVisible;
 	},
 
@@ -974,21 +1343,54 @@ $.widget(widgetName, {
 		this.selectbox.attr("disabled", "disabled");
 	},
 
+	readonly: function() {
+		// this.log("disable");
+
+		this.hideList();
+		this.isDisabled = true;
+		this.isReadOnly = true;
+		this.button.addClass(this.css.buttonDisabled);
+		this.input.addClass(this.css.inputDisabled);
+		this.input.attr("readonly", "readonly");
+		this.selectbox.attr("disabled", "disabled");
+	},
+
 	enable: function() {
 		// this.log("enable");
-
 		this.isDisabled = false;
 		this.button.removeClass(this.css.buttonDisabled);
 		this.input.removeClass(this.css.inputDisabled);
 		this.input.removeAttr("disabled");
+		this.input.removeProp("disabled");
 		this.selectbox.removeAttr("disabled");
+		this.selectbox.removeProp("disabled");
+	},
+
+	loosefocus: function (){
+		this.specialLooseFocusEvent ();
+	},
+	
+	unreadonly: function() {
+		// this.log("enable");
+
+		this.isDisabled = false;
+		this.isReadOnly = false;
+		this.button.removeClass(this.css.buttonDisabled);
+		this.input.removeClass(this.css.inputDisabled);
+		this.input.removeAttr("readonly");
+		this.selectbox.removeAttr("disabled");
+	},
+
+	selectAll: function() {
+		// this.log("Select All");
+		this.input.get(0).select();
 	},
 
 	getDropdownContainer: function() {
 		var ddc = $("#" + this.options.dropDownID);
 		if(!ddc.length) { //create
 			ddc = $("<div></div>")
-				.appendTo("body")
+				.appendTo('body')
 				.css("height", 0)
 				.attr("id", this.options.dropDownID);
 		}
@@ -1016,29 +1418,22 @@ $.widget(widgetName, {
 		return zIndex + 1;
 	},
 
-	changeOptions: function() {	
+	changeOptions: function() {
 		// this.log("changeOptions");
 		this._populateFromMaster();
 	},		
 
 	destroy: function() {
 		// this.log("called destroy");
+
 		if(this.selectIsWrapped) { //unwrap
 			this.wrapper.before(this.selectbox);
 		}
 		
         this._moveAttrs(this.input, this.selectbox, this.options.moveAttrs); // restore moved attributes
-        if(this.labels) { //revert label 'for' attributes.
-			this.labels.attr("for", this.selectbox.attr("id")); 
-			this.labels = null;
-        }
-        
-        if(this.origACAttr) {
-        	this.selectbox.attr("autocomplete", this.origAutoCompAttr);
-        } else {
-        	this.selectbox.removeAttr("autocomplete");
-        }
-        
+		this.labels.attr("for", this.selectbox.attr("id")); //revert label 'for' attributes.
+		this.labels = null;
+		
 		this.selectbox.unbind("change." + widgetName);
 		$(document).unbind("click." + widgetName, this._myDocClickHandler);
 		if(this._myPollId) clearInterval(this._myPollId );
@@ -1058,9 +1453,6 @@ $.widget(widgetName, {
 		} else { // 1.8+
 			$.Widget.prototype.destroy.apply(this, arguments); // default destroy
 		}
-		
-		if(this.selectbox && this.internalFocus) this.selectbox.focus();
-		
 		this.selectbox = null;
 		this._encodeDom = null;
 		
@@ -1253,8 +1645,9 @@ $.ui.ufd.getNewTrie = function(isCaseSensitive, isInfix){
 
 
 $.extend($.ui.ufd, {
-	version: "@VERSION",
+	version: "0.6",
 	getter: "", //for methods that are getters, not chainables
+	classAttr: (($.support.style) ? "class" : "className"),  // IE6/7 class attribute
 	
 	defaults: { // 1.7 default options location, see below
 		skin: "plain", // skin name 
@@ -1268,15 +1661,30 @@ $.extend($.ui.ufd, {
 		infix: true, //infix search, not prefix 
 		addEmphasis: false, // add <EM> tags around matches.
 		caseSensitive: false, // case sensitive search 
+		submitFreeText: false, // re[name] original select, give text input the selects' original [name], and allow unmatched entries  
 		homeEndForCursor: false, // should home/end affect dropdown or move cursor?
 		allowLR: false, // show horizontal scrollbar
 		calculateZIndex: false, // {max ancestor} + 1
 		useUiCss: false, // use jquery UI themeroller classes. 
 		log: false, // log to firebug console (if available) and logSelector (if it exists)
 		unwrapForCSS: false, // unwrap select on reload to get % right on units etc. unwrap causes flicker on reload in iE6
-		listWidthFixed: true, // List width matches widget? If false, list can be wider to fit item width, but uses min-width so no iE6 support.  
-		showListOnFocus: false, // if false, list only appears after typing or click
-		
+		listWidthFixed: false, // List width matches widget? If false, list can be wider to fit item width, but uses min-width so no iE6 support.  
+		maxDivWidth:null,
+		setautowidthlist:false,
+		setnobr : false,
+		printvisible:false,
+		inputprintvisible:false,
+		autoalign:true,
+		altWidth:null,
+		noalt:false,
+		showmealt:false,
+		inputAlign : 'left',
+		altAlign:'center',
+		clickHandler : null,
+		showtitle:false,
+		arrowspresshandle:true,
+		scroll:'default',
+		scrollconteiner:'',
 		polling: 250, // poll msec to test disabled, dimensioned state of master. 0 to disable polling, but needed for (initially) hidden fields. 
 		listMaxVisible: 10, // number of visible items
 		minWidth: 50, // don't autosize smaller then this.
